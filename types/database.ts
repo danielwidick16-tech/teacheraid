@@ -597,6 +597,518 @@ export interface Database {
           }
         ]
       }
+      // Scanner Mode tables
+      assignments: {
+        Row: {
+          id: string
+          user_id: string
+          classroom_id: string | null
+          title: string
+          subject: string | null
+          description: string | null
+          total_points: number
+          due_date: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          classroom_id?: string | null
+          title: string
+          subject?: string | null
+          description?: string | null
+          total_points?: number
+          due_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          classroom_id?: string | null
+          title?: string
+          subject?: string | null
+          description?: string | null
+          total_points?: number
+          due_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assignments_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assignments_classroom_id_fkey"
+            columns: ["classroom_id"]
+            referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      students: {
+        Row: {
+          id: string
+          user_id: string
+          classroom_id: string | null
+          first_name: string
+          last_name: string
+          student_id: string | null
+          email: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          classroom_id?: string | null
+          first_name: string
+          last_name: string
+          student_id?: string | null
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          classroom_id?: string | null
+          first_name?: string
+          last_name?: string
+          student_id?: string | null
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "students_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "students_classroom_id_fkey"
+            columns: ["classroom_id"]
+            referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      scanner_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          mode: 'grade' | 'key'
+          assignment_id: string | null
+          status: 'active' | 'completed' | 'cancelled'
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          mode: 'grade' | 'key'
+          assignment_id?: string | null
+          status?: 'active' | 'completed' | 'cancelled'
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          mode?: 'grade' | 'key'
+          assignment_id?: string | null
+          status?: 'active' | 'completed' | 'cancelled'
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scanner_sessions_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scanner_sessions_assignment_id_fkey"
+            columns: ["assignment_id"]
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      scanned_documents: {
+        Row: {
+          id: string
+          session_id: string
+          user_id: string
+          student_id: string | null
+          assignment_id: string | null
+          pages: Json
+          ocr_raw: Json | null
+          status: 'pending' | 'processing' | 'completed' | 'error'
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          user_id: string
+          student_id?: string | null
+          assignment_id?: string | null
+          pages?: Json
+          ocr_raw?: Json | null
+          status?: 'pending' | 'processing' | 'completed' | 'error'
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          user_id?: string
+          student_id?: string | null
+          assignment_id?: string | null
+          pages?: Json
+          ocr_raw?: Json | null
+          status?: 'pending' | 'processing' | 'completed' | 'error'
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scanned_documents_session_id_fkey"
+            columns: ["session_id"]
+            referencedRelation: "scanner_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scanned_documents_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      extracted_questions: {
+        Row: {
+          id: string
+          document_id: string
+          user_id: string
+          question_number: number
+          region_bbox: Json | null
+          page_index: number
+          extracted_text: string | null
+          confidence: number | null
+          question_type: 'multiple_choice' | 'fill_in' | 'short_answer' | 'true_false' | 'math' | 'unknown' | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          document_id: string
+          user_id: string
+          question_number: number
+          region_bbox?: Json | null
+          page_index?: number
+          extracted_text?: string | null
+          confidence?: number | null
+          question_type?: 'multiple_choice' | 'fill_in' | 'short_answer' | 'true_false' | 'math' | 'unknown' | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          document_id?: string
+          user_id?: string
+          question_number?: number
+          region_bbox?: Json | null
+          page_index?: number
+          extracted_text?: string | null
+          confidence?: number | null
+          question_type?: 'multiple_choice' | 'fill_in' | 'short_answer' | 'true_false' | 'math' | 'unknown' | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_questions_document_id_fkey"
+            columns: ["document_id"]
+            referencedRelation: "scanned_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_questions_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      answer_keys: {
+        Row: {
+          id: string
+          user_id: string
+          assignment_id: string
+          title: string
+          source_type: 'teacher' | 'synthesized'
+          rubric: Json
+          total_points: number
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          assignment_id: string
+          title: string
+          source_type?: 'teacher' | 'synthesized'
+          rubric?: Json
+          total_points?: number
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          assignment_id?: string
+          title?: string
+          source_type?: 'teacher' | 'synthesized'
+          rubric?: Json
+          total_points?: number
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "answer_keys_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "answer_keys_assignment_id_fkey"
+            columns: ["assignment_id"]
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      answer_key_items: {
+        Row: {
+          id: string
+          answer_key_id: string
+          question_number: number
+          correct_answer: string
+          accepted_variants: Json
+          points: number
+          question_type: 'multiple_choice' | 'fill_in' | 'short_answer' | 'true_false' | 'math' | 'unknown' | null
+          rubric_notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          answer_key_id: string
+          question_number: number
+          correct_answer: string
+          accepted_variants?: Json
+          points?: number
+          question_type?: 'multiple_choice' | 'fill_in' | 'short_answer' | 'true_false' | 'math' | 'unknown' | null
+          rubric_notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          answer_key_id?: string
+          question_number?: number
+          correct_answer?: string
+          accepted_variants?: Json
+          points?: number
+          question_type?: 'multiple_choice' | 'fill_in' | 'short_answer' | 'true_false' | 'math' | 'unknown' | null
+          rubric_notes?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "answer_key_items_answer_key_id_fkey"
+            columns: ["answer_key_id"]
+            referencedRelation: "answer_keys"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      grades: {
+        Row: {
+          id: string
+          user_id: string
+          student_id: string | null
+          assignment_id: string
+          document_id: string | null
+          answer_key_id: string | null
+          total_points: number
+          earned_points: number
+          percentage: number | null
+          per_question: Json
+          feedback_summary: string | null
+          status: 'draft' | 'finalized' | 'exported'
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          student_id?: string | null
+          assignment_id: string
+          document_id?: string | null
+          answer_key_id?: string | null
+          total_points: number
+          earned_points: number
+          percentage?: number | null
+          per_question?: Json
+          feedback_summary?: string | null
+          status?: 'draft' | 'finalized' | 'exported'
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          student_id?: string | null
+          assignment_id?: string
+          document_id?: string | null
+          answer_key_id?: string | null
+          total_points?: number
+          earned_points?: number
+          percentage?: number | null
+          per_question?: Json
+          feedback_summary?: string | null
+          status?: 'draft' | 'finalized' | 'exported'
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grades_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grades_assignment_id_fkey"
+            columns: ["assignment_id"]
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      question_grades: {
+        Row: {
+          id: string
+          grade_id: string
+          question_number: number
+          student_answer: string | null
+          correct_answer: string | null
+          points_possible: number | null
+          points_earned: number | null
+          is_correct: boolean | null
+          confidence: number | null
+          needs_review: boolean
+          teacher_override: boolean
+          feedback: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          grade_id: string
+          question_number: number
+          student_answer?: string | null
+          correct_answer?: string | null
+          points_possible?: number | null
+          points_earned?: number | null
+          is_correct?: boolean | null
+          confidence?: number | null
+          needs_review?: boolean
+          teacher_override?: boolean
+          feedback?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          grade_id?: string
+          question_number?: number
+          student_answer?: string | null
+          correct_answer?: string | null
+          points_possible?: number | null
+          points_earned?: number | null
+          is_correct?: boolean | null
+          confidence?: number | null
+          needs_review?: boolean
+          teacher_override?: boolean
+          feedback?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "question_grades_grade_id_fkey"
+            columns: ["grade_id"]
+            referencedRelation: "grades"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      scan_templates: {
+        Row: {
+          id: string
+          user_id: string
+          assignment_id: string | null
+          name: string
+          page_dimensions: Json | null
+          question_regions: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          assignment_id?: string | null
+          name: string
+          page_dimensions?: Json | null
+          question_regions?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          assignment_id?: string | null
+          name?: string
+          page_dimensions?: Json | null
+          question_regions?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_templates_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_templates_assignment_id_fkey"
+            columns: ["assignment_id"]
+            referencedRelation: "assignments"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -625,3 +1137,15 @@ export type LessonPlan = Database['public']['Tables']['lesson_plans']['Row']
 export type CalendarEvent = Database['public']['Tables']['calendar_events']['Row']
 export type Attachment = Database['public']['Tables']['attachments']['Row']
 export type ShareLink = Database['public']['Tables']['share_links']['Row']
+
+// Scanner Mode types
+export type Assignment = Database['public']['Tables']['assignments']['Row']
+export type Student = Database['public']['Tables']['students']['Row']
+export type ScannerSession = Database['public']['Tables']['scanner_sessions']['Row']
+export type ScannedDocument = Database['public']['Tables']['scanned_documents']['Row']
+export type ExtractedQuestion = Database['public']['Tables']['extracted_questions']['Row']
+export type AnswerKey = Database['public']['Tables']['answer_keys']['Row']
+export type AnswerKeyItem = Database['public']['Tables']['answer_key_items']['Row']
+export type Grade = Database['public']['Tables']['grades']['Row']
+export type QuestionGrade = Database['public']['Tables']['question_grades']['Row']
+export type ScanTemplate = Database['public']['Tables']['scan_templates']['Row']
