@@ -148,29 +148,35 @@ export async function POST(req: NextRequest) {
         // Add the grading prompt - DON'T show answer key to avoid confusion
         content.push({
           type: 'text',
-          text: `Analyze this student's completed test paper. The student has written or marked their answers in RED PEN.
+          text: `You are grading a student's test. Look at the image and find the student's answer for each question.
 
-TASK: Find the student's answer for each question (1 through ${keyItems.length}).
+This test has ${keyItems.length} questions (numbered 1 to ${keyItems.length}).
 
-HOW TO IDENTIFY STUDENT ANSWERS:
-The student writes their answer in RED next to or near each question number. Look for:
-- A RED letter written near the question number (like "1. B" or "2. A")
-- A RED circle around one of the printed answer choices
-- RED handwriting indicating the answer
+Students indicate their answers in different ways:
+- CIRCLING a letter (A, B, C, D, E) - the circled letter is their answer
+- WRITING a letter next to the question number
+- FILLING IN a bubble
+- WRITING text in a blank
+- Crossing out wrong answers and marking the correct one
 
-The test paper has printed questions with answer choices (A, B, C, D, etc). The student's RED marks show which answer they chose.
+For EACH question, determine which answer the student selected. If they circled "B", their answer is "B". If they wrote "C" next to question 3, their answer is "C".
 
-CRITICAL: Only report answers that have RED markings. The student uses RED PEN to indicate their selections.
+Look carefully at the image. Students may use pencil, pen, or any color to mark their answers.
 
-Return a JSON array with what the student marked in RED for each question:
+Return JSON array with the student's answer for each question:
 [
-  {"question_number": 1, "student_answer": "B"},
-  {"question_number": 2, "student_answer": "C"}
+  {"question_number": 1, "student_answer": "A"},
+  {"question_number": 2, "student_answer": "B"},
+  {"question_number": 3, "student_answer": "C"}
 ]
 
-If a question has no RED marking, use "?" for that answer.
-Include all ${keyItems.length} questions.
-Return ONLY the JSON array.`,
+Rules:
+- Report the letter/answer the student marked or wrote
+- If circled, report the circled letter
+- If written, report what was written
+- Use "?" only if truly blank or unreadable
+- Include all ${keyItems.length} questions
+- Return ONLY the JSON array`,
         })
 
         const response = await anthropic.messages.create({
