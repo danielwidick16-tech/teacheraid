@@ -5,7 +5,7 @@ import { gradeQuestion, detectQuestionType, type QuestionType } from '@/lib/scan
 
 // Initialize Vision client
 function getVisionClient() {
-  const credentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+  const credentials = process.env.GOOGLE_CLOUD_CREDENTIALS || process.env.GOOGLE_CLOUD_CREDENTIALS_BASE64
   if (!credentials) {
     throw new Error('GOOGLE_CLOUD_CREDENTIALS environment variable not set')
   }
@@ -280,52 +280,96 @@ function extractStudentAnswers(text: string, expectedCount: number): Record<numb
   const answers: Record<number, string> = {}
   const lines = text.split('\n').filter((line) => line.trim())
 
-  // Patterns to match question-answer pairs
+  console.log('OCR Text for grading:', text.substring(0, 500))
+  console.log('Expected count:', expectedCount)
+
+  // Patterns to match question-answer pairs (in order of specificity)
   const patterns = [
-    // "1. A" or "1) A" or "1: A"
-    /^(\d+)[.\):\s]+([A-Ea-e])\s*$/,
-    // "1. True" or "1. False"
-    /^(\d+)[.\):\s]+(true|false|t|f|yes|no)\s*$/i,
-    // "1. answer text"
-    /^(\d+)[.\):\s]+(.+)$/,
-    // "Q1: answer"
-    /^[Qq](\d+)[.\):\s]+(.+)$/,
+    // "1. A" or "1) A" or "1: A" or "1 A" (multiple choice)
+    /^(\d+)[.\)\s:\-]*([A-Ea-e])(?:\s|$|[.\)])/i,
+    // "1. True" or "1. False" or variations
+    /^(\d+)[.\)\s:\-]*(true|false|t|f|yes|no)(?:\s|$)/i,
+    // "Q1: A" or "#1 A"
+    /^[Qq#]?(\d+)[.\)\s:\-]+([A-Ea-e])(?:\s|$)/i,
     // "1 = A" or "1 - A"
-    /^(\d+)\s*[=\-]\s*([A-Ea-e])\s*$/,
-    // Just "1 A"
-    /^(\d+)\s+([A-Ea-e])\s*$/,
+    /^(\d+)\s*[=\-]\s*([A-Ea-e])(?:\s|$)/i,
+    // Number followed by circled/marked letter - "1 ⓐ" or "1 (A)"
+    /^(\d+)[.\)\s:\-]*\(?([A-Ea-e])\)?(?:\s|$)/i,
+    // "1. answer text" (more general - match last)
+    /^(\d+)[.\)\s:\-]+(.+)$/,
+    // "Q1: answer"
+    /^[Qq#](\d+)[.\)\s:\-]+(.+)$/,
   ]
 
   for (const line of lines) {
     const trimmed = line.trim()
 
+    // Skip very long lines (likely not answer lines)
+    if (trimmed.length > 100) continue
+
     for (const pattern of patterns) {
       const match = trimmed.match(pattern)
       if (match) {
         const questionNum = parseInt(match[1])
-        const answerText = match[2].trim()
+        let answerText = match[2].trim()
+
+        // Normalize single letter answers to uppercase
+        if (/^[a-eA-E]$/.test(answerText)) {
+          answerText = answerText.toUpperCase()
+        }
 
         if (questionNum > 0 && questionNum <= 200 && answerText) {
-          answers[questionNum] = answerText
+          // Don't overwrite if we already have an answer for this question
+          if (!answers[questionNum]) {
+            answers[questionNum] = answerText
+            console.log(`Found answer for Q${questionNum}: "${answerText}" from line: "${trimmed}"`)
+          }
         }
         break
       }
     }
   }
 
+  console.log('Initially extracted answers:', Object.keys(answers).length)
+
   // If we found very few answers, try alternative parsing
   if (Object.keys(answers).length < expectedCount / 2) {
-    // Look for standalone letters that might be answers
-    const letterMatches = text.match(/\b[A-Ea-e]\b/g)
+    console.log('Trying alternative parsing...')
+
+    // Look for lines with just a number and letter close together
+    const allText = text.replace(/\n/g, ' ')
+
+    // Pattern: number followed soon by a single letter
+    const simplePattern = /(\d+)\s*[.\)\:\-]?\s*([A-Ea-e])(?:\s|[.\)\,]|$)/gi
+    let simpleMatch
+    while ((simpleMatch = simplePattern.exec(allText)) !== null) {
+      const questionNum = parseInt(simpleMatch[1])
+      const answerText = simpleMatch[2].toUpperCase()
+
+      if (questionNum > 0 && questionNum <= expectedCount && !answers[questionNum]) {
+        answers[questionNum] = answerText
+        console.log(`Alt parse found Q${questionNum}: "${answerText}"`)
+      }
+    }
+  }
+
+  // Last resort: Look for sequential standalone letters
+  if (Object.keys(answers).length < expectedCount / 3) {
+    console.log('Trying letter sequence parsing...')
+
+    // Find all standalone letters A-E (likely answers)
+    const letterMatches = text.match(/(?:^|[\s\n\r.,;:()])\s*([A-Ea-e])\s*(?:$|[\s\n\r.,;:()])/gm)
     if (letterMatches && letterMatches.length >= expectedCount * 0.5) {
-      // Assume sequential answers
-      letterMatches.slice(0, expectedCount).forEach((letter, index) => {
-        if (!answers[index + 1]) {
-          answers[index + 1] = letter.toUpperCase()
+      const cleanLetters = letterMatches.map(m => m.trim().toUpperCase())
+      cleanLetters.slice(0, expectedCount).forEach((letter, index) => {
+        if (!answers[index + 1] && /^[A-E]$/.test(letter)) {
+          answers[index + 1] = letter
+          console.log(`Sequential letter Q${index + 1}: "${letter}"`)
         }
       })
     }
   }
 
+  console.log('Final extracted answers:', answers)
   return answers
 }
