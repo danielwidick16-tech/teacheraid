@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { ImageAnnotatorClient } from '@google-cloud/vision'
-import { gradeQuestion, detectQuestionType, type QuestionType } from '@/lib/scanner/grading'
+import Anthropic from '@anthropic-ai/sdk'
 
 // Initialize Vision client
 function getVisionClient() {
@@ -17,13 +17,30 @@ function getVisionClient() {
   })
 }
 
+// Initialize Anthropic client
+function getAnthropicClient() {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY environment variable not set')
+  }
+
+  return new Anthropic({ apiKey })
+}
+
 interface AnswerKeyItem {
   id: string
   question_number: number
   correct_answer: string
   accepted_variants: string[]
   points: number
-  question_type: QuestionType | null
+  question_type: string | null
+}
+
+interface ExtractedStudentAnswer {
+  question_number: number
+  student_answer: string
+  is_correct: boolean
+  confidence: number
 }
 
 export async function POST(req: NextRequest) {
@@ -59,7 +76,7 @@ export async function POST(req: NextRequest) {
           return
         }
 
-        send({ progress: { current: 0, total: 3, message: 'Loading answer key...' } })
+        send({ progress: { current: 0, total: 4, message: 'Loading answer key...' } })
 
         // Load answer key items
         const { data: keyItems, error: keyError } = await supabase
@@ -74,11 +91,13 @@ export async function POST(req: NextRequest) {
           return
         }
 
-        send({ progress: { current: 1, total: 3, message: 'Processing images with OCR...' } })
+        send({ progress: { current: 1, total: 4, message: 'Processing student paper...' } })
 
-        // Process images with OCR
-        const visionClient = getVisionClient()
+        // Download images and convert to base64
+        const imageBase64List: string[] = []
         let fullOcrText = ''
+
+        const visionClient = getVisionClient()
 
         for (const imagePath of imagePaths) {
           const { data: imageData, error: downloadError } = await supabase.storage
@@ -89,41 +108,115 @@ export async function POST(req: NextRequest) {
 
           const arrayBuffer = await imageData.arrayBuffer()
           const base64Image = Buffer.from(arrayBuffer).toString('base64')
+          imageBase64List.push(base64Image)
 
+          // Also get OCR text for reference
           const [result] = await visionClient.documentTextDetection({
             image: { content: base64Image },
           })
-
           fullOcrText += (result.fullTextAnnotation?.text || '') + '\n'
         }
 
-        // Extract student answers
-        const studentAnswers = extractStudentAnswers(fullOcrText, keyItems.length)
-
-        send({ progress: { current: 2, total: 3, message: 'Grading answers...' } })
-
-        // Create scanned document record
-        const { data: doc, error: docError } = await supabase
-          .from('scanned_documents')
-          .insert({
-            session_id: sessionId,
-            user_id: user.id,
-            assignment_id: assignmentId,
-            pages: imagePaths.map((path: string, index: number) => ({
-              path,
-              page_number: index + 1,
-            })),
-            ocr_raw: { text: fullOcrText, answers: studentAnswers },
-            status: 'completed',
-          })
-          .select()
-          .single()
-
-        if (docError) {
-          console.error('Document insert error:', docError)
+        if (imageBase64List.length === 0) {
+          send({ error: 'Failed to process images' })
+          controller.close()
+          return
         }
 
-        // Grade each question
+        send({ progress: { current: 2, total: 4, message: 'AI grading student answers...' } })
+
+        // Build answer key summary for AI
+        const answerKeySummary = (keyItems as AnswerKeyItem[]).map(item =>
+          `Q${item.question_number}: ${item.correct_answer}${item.accepted_variants?.length ? ` (also accept: ${item.accepted_variants.join(', ')})` : ''}`
+        ).join('\n')
+
+        // Use Claude to extract and grade student answers from images
+        const anthropic = getAnthropicClient()
+
+        const content: Anthropic.MessageCreateParams['messages'][0]['content'] = []
+
+        // Add images
+        for (const base64 of imageBase64List) {
+          content.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: base64,
+            },
+          })
+        }
+
+        // Add the grading prompt
+        content.push({
+          type: 'text',
+          text: `You are a teacher's assistant grading a student's test/quiz paper.
+
+ANSWER KEY (correct answers):
+${answerKeySummary}
+
+Look at the student's paper image(s) carefully. Students mark their answers in various ways:
+- Circling a letter (A, B, C, D, E)
+- Writing a letter next to the question number
+- Filling in a bubble
+- Writing the answer in a blank
+- Crossing out wrong answers and marking the correct one
+- Using pen/pencil marks, checkmarks, or highlights
+
+For EACH question in the answer key, find the student's answer on their paper and determine if it's correct.
+
+IMPORTANT: Look for ANY marks the student made to indicate their answer - circled letters, written letters, filled bubbles, handwritten text, etc. Students often write their answers with pen or pencil directly on the test.
+
+Respond with a JSON array in this EXACT format:
+[
+  {"question_number": 1, "student_answer": "B", "is_correct": false},
+  {"question_number": 2, "student_answer": "A", "is_correct": true},
+  {"question_number": 3, "student_answer": "True", "is_correct": true}
+]
+
+Rules:
+- Include ALL ${keyItems.length} questions
+- "student_answer" should be exactly what the student marked/wrote (or "?" if unclear/blank)
+- "is_correct" should be true if the student's answer matches the correct answer (case-insensitive)
+- For multiple choice, just use the letter (A, B, C, D, E)
+- For true/false, use "True" or "False"
+- Return ONLY the JSON array, no other text`,
+        })
+
+        const response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          messages: [
+            {
+              role: 'user',
+              content,
+            },
+          ],
+        })
+
+        // Parse AI response
+        const responseText = response.content
+          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+          .map((block) => block.text)
+          .join('')
+
+        let gradedAnswers: ExtractedStudentAnswer[] = []
+        try {
+          const jsonMatch = responseText.match(/\[[\s\S]*\]/)
+          if (jsonMatch) {
+            gradedAnswers = JSON.parse(jsonMatch[0])
+          }
+        } catch (parseError) {
+          console.error('Failed to parse AI grading response:', parseError)
+          console.log('Raw response:', responseText)
+          send({ error: 'Failed to parse AI grading results' })
+          controller.close()
+          return
+        }
+
+        send({ progress: { current: 3, total: 4, message: 'Saving grades...' } })
+
+        // Build question grades from AI response
         const questionGrades: Array<{
           question_number: number
           student_answer: string
@@ -139,35 +232,49 @@ export async function POST(req: NextRequest) {
         let totalPossible = 0
 
         for (const keyItem of keyItems as AnswerKeyItem[]) {
-          const studentAnswer = studentAnswers[keyItem.question_number] || ''
-          const questionType = keyItem.question_type || detectQuestionType(keyItem.correct_answer)
-
-          const result = gradeQuestion(
-            studentAnswer,
-            keyItem.correct_answer,
-            questionType,
-            {
-              pointsPossible: keyItem.points || 1,
-              acceptedVariants: Array.isArray(keyItem.accepted_variants) ? keyItem.accepted_variants : [],
-            }
-          )
+          const aiGrade = gradedAnswers.find(g => g.question_number === keyItem.question_number)
+          const studentAnswer = aiGrade?.student_answer || '?'
+          const isCorrect = aiGrade?.is_correct || false
+          const pointsEarned = isCorrect ? (keyItem.points || 1) : 0
+          const needsReview = studentAnswer === '?' || !aiGrade
 
           questionGrades.push({
             question_number: keyItem.question_number,
             student_answer: studentAnswer,
             correct_answer: keyItem.correct_answer,
             points_possible: keyItem.points || 1,
-            points_earned: result.pointsEarned,
-            is_correct: result.isCorrect,
-            confidence: result.confidence,
-            needs_review: result.needsReview,
+            points_earned: pointsEarned,
+            is_correct: isCorrect,
+            confidence: aiGrade ? 0.9 : 0.5,
+            needs_review: needsReview,
           })
 
-          totalEarned += result.pointsEarned
+          totalEarned += pointsEarned
           totalPossible += (keyItem.points || 1)
         }
 
         const percentage = totalPossible > 0 ? Math.round((totalEarned / totalPossible) * 100) : 0
+
+        // Create scanned document record
+        const { data: doc, error: docError } = await supabase
+          .from('scanned_documents')
+          .insert({
+            session_id: sessionId,
+            user_id: user.id,
+            assignment_id: assignmentId,
+            pages: JSON.parse(JSON.stringify(imagePaths.map((path: string, index: number) => ({
+              path,
+              page_number: index + 1,
+            })))),
+            ocr_raw: JSON.parse(JSON.stringify({ text: fullOcrText, ai_grading: gradedAnswers })),
+            status: 'completed',
+          })
+          .select()
+          .single()
+
+        if (docError) {
+          console.error('Document insert error:', docError)
+        }
 
         // Find or create student record
         let studentId: string | null = null
@@ -176,7 +283,6 @@ export async function POST(req: NextRequest) {
           const firstName = nameParts[0] || ''
           const lastName = nameParts.slice(1).join(' ') || firstName
 
-          // Check if student exists
           const { data: existingStudent } = await supabase
             .from('students')
             .select('id')
@@ -188,7 +294,6 @@ export async function POST(req: NextRequest) {
           if (existingStudent) {
             studentId = existingStudent.id
           } else {
-            // Create new student
             const { data: newStudent } = await supabase
               .from('students')
               .insert({
@@ -217,7 +322,7 @@ export async function POST(req: NextRequest) {
             total_points: totalPossible,
             earned_points: totalEarned,
             percentage,
-            per_question: questionGrades,
+            per_question: JSON.parse(JSON.stringify(questionGrades)),
             status: 'draft',
           })
           .select()
@@ -245,7 +350,7 @@ export async function POST(req: NextRequest) {
 
         await supabase.from('question_grades').insert(questionGradesToInsert)
 
-        send({ progress: { current: 3, total: 3, message: 'Complete!' } })
+        send({ progress: { current: 4, total: 4, message: 'Complete!' } })
         send({
           result: {
             gradeId: grade.id,
@@ -271,105 +376,4 @@ export async function POST(req: NextRequest) {
       Connection: 'keep-alive',
     },
   })
-}
-
-/**
- * Extract student answers from OCR text
- */
-function extractStudentAnswers(text: string, expectedCount: number): Record<number, string> {
-  const answers: Record<number, string> = {}
-  const lines = text.split('\n').filter((line) => line.trim())
-
-  console.log('OCR Text for grading:', text.substring(0, 500))
-  console.log('Expected count:', expectedCount)
-
-  // Patterns to match question-answer pairs (in order of specificity)
-  const patterns = [
-    // "1. A" or "1) A" or "1: A" or "1 A" (multiple choice)
-    /^(\d+)[.\)\s:\-]*([A-Ea-e])(?:\s|$|[.\)])/i,
-    // "1. True" or "1. False" or variations
-    /^(\d+)[.\)\s:\-]*(true|false|t|f|yes|no)(?:\s|$)/i,
-    // "Q1: A" or "#1 A"
-    /^[Qq#]?(\d+)[.\)\s:\-]+([A-Ea-e])(?:\s|$)/i,
-    // "1 = A" or "1 - A"
-    /^(\d+)\s*[=\-]\s*([A-Ea-e])(?:\s|$)/i,
-    // Number followed by circled/marked letter - "1 ⓐ" or "1 (A)"
-    /^(\d+)[.\)\s:\-]*\(?([A-Ea-e])\)?(?:\s|$)/i,
-    // "1. answer text" (more general - match last)
-    /^(\d+)[.\)\s:\-]+(.+)$/,
-    // "Q1: answer"
-    /^[Qq#](\d+)[.\)\s:\-]+(.+)$/,
-  ]
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-
-    // Skip very long lines (likely not answer lines)
-    if (trimmed.length > 100) continue
-
-    for (const pattern of patterns) {
-      const match = trimmed.match(pattern)
-      if (match) {
-        const questionNum = parseInt(match[1])
-        let answerText = match[2].trim()
-
-        // Normalize single letter answers to uppercase
-        if (/^[a-eA-E]$/.test(answerText)) {
-          answerText = answerText.toUpperCase()
-        }
-
-        if (questionNum > 0 && questionNum <= 200 && answerText) {
-          // Don't overwrite if we already have an answer for this question
-          if (!answers[questionNum]) {
-            answers[questionNum] = answerText
-            console.log(`Found answer for Q${questionNum}: "${answerText}" from line: "${trimmed}"`)
-          }
-        }
-        break
-      }
-    }
-  }
-
-  console.log('Initially extracted answers:', Object.keys(answers).length)
-
-  // If we found very few answers, try alternative parsing
-  if (Object.keys(answers).length < expectedCount / 2) {
-    console.log('Trying alternative parsing...')
-
-    // Look for lines with just a number and letter close together
-    const allText = text.replace(/\n/g, ' ')
-
-    // Pattern: number followed soon by a single letter
-    const simplePattern = /(\d+)\s*[.\)\:\-]?\s*([A-Ea-e])(?:\s|[.\)\,]|$)/gi
-    let simpleMatch
-    while ((simpleMatch = simplePattern.exec(allText)) !== null) {
-      const questionNum = parseInt(simpleMatch[1])
-      const answerText = simpleMatch[2].toUpperCase()
-
-      if (questionNum > 0 && questionNum <= expectedCount && !answers[questionNum]) {
-        answers[questionNum] = answerText
-        console.log(`Alt parse found Q${questionNum}: "${answerText}"`)
-      }
-    }
-  }
-
-  // Last resort: Look for sequential standalone letters
-  if (Object.keys(answers).length < expectedCount / 3) {
-    console.log('Trying letter sequence parsing...')
-
-    // Find all standalone letters A-E (likely answers)
-    const letterMatches = text.match(/(?:^|[\s\n\r.,;:()])\s*([A-Ea-e])\s*(?:$|[\s\n\r.,;:()])/gm)
-    if (letterMatches && letterMatches.length >= expectedCount * 0.5) {
-      const cleanLetters = letterMatches.map(m => m.trim().toUpperCase())
-      cleanLetters.slice(0, expectedCount).forEach((letter, index) => {
-        if (!answers[index + 1] && /^[A-E]$/.test(letter)) {
-          answers[index + 1] = letter
-          console.log(`Sequential letter Q${index + 1}: "${letter}"`)
-        }
-      })
-    }
-  }
-
-  console.log('Final extracted answers:', answers)
-  return answers
 }
