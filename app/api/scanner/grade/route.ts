@@ -39,8 +39,6 @@ interface AnswerKeyItem {
 interface ExtractedStudentAnswer {
   question_number: number
   student_answer: string
-  is_correct: boolean
-  confidence: number
 }
 
 export async function POST(req: NextRequest) {
@@ -147,41 +145,38 @@ export async function POST(req: NextRequest) {
           })
         }
 
-        // Add the grading prompt
+        // Add the grading prompt - DON'T show answer key to avoid confusion
         content.push({
           type: 'text',
-          text: `You are a teacher's assistant. Your job is to look at this student's completed test paper and extract WHAT THE STUDENT WROTE/MARKED as their answers.
+          text: `You are analyzing a student's completed test/quiz paper. Your ONLY job is to identify what answer the student selected or wrote for each question.
 
-This is a STUDENT'S COMPLETED TEST - NOT the answer key. The student has marked their answers by:
-- Circling letters (A, B, C, D, E)
-- Writing letters next to question numbers
-- Filling in bubbles
-- Writing text in blanks
-- Using pen/pencil marks
+Look for the student's answers which may appear as:
+- A letter circled in RED PEN or pencil (A, B, C, D, E)
+- A letter written next to or near the question number
+- A filled-in bubble or checkbox
+- Handwritten text in a blank space
+- An "X" or checkmark next to an answer choice
+- Any marking that indicates the student's selection
 
-YOUR TASK: For each question number (1 through ${keyItems.length}), find what answer THE STUDENT marked on their paper.
+The test has ${keyItems.length} questions numbered 1 through ${keyItems.length}.
 
-Here is the ANSWER KEY (the correct answers) - use this ONLY to determine if the student got each question right or wrong:
-${answerKeySummary}
+IMPORTANT:
+- Look for RED PEN marks - the student uses red pen to mark answers
+- Ignore the printed answer choices - only report what the student MARKED/SELECTED
+- The student's marking indicates their chosen answer
 
-IMPORTANT INSTRUCTIONS:
-1. First, look at the student's paper and identify what they marked for each question
-2. Then compare their answer to the answer key to determine if it's correct
-3. Do NOT assume the student got everything right - actually look at what they wrote
-4. If the student circled "B" but the correct answer is "A", that's WRONG (is_correct: false)
-
-Respond with a JSON array:
+For each question, report ONLY what the student marked. Respond with JSON:
 [
-  {"question_number": 1, "student_answer": "B", "is_correct": false},
-  {"question_number": 2, "student_answer": "A", "is_correct": true}
+  {"question_number": 1, "student_answer": "B"},
+  {"question_number": 2, "student_answer": "A"},
+  {"question_number": 3, "student_answer": "C"}
 ]
 
 Rules:
-- "student_answer": What the STUDENT actually marked/wrote on their paper (not the correct answer!)
-- "is_correct": true ONLY if student_answer matches the correct answer from the key
-- Use "?" if you cannot determine what the student marked
+- Report the letter or text the student marked/wrote
+- Use "?" if the student left it blank or you can't determine their answer
 - Include all ${keyItems.length} questions
-- Return ONLY the JSON array`,
+- Return ONLY the JSON array, no explanation`,
         })
 
         const response = await anthropic.messages.create({
@@ -201,23 +196,25 @@ Rules:
           .map((block) => block.text)
           .join('')
 
-        let gradedAnswers: ExtractedStudentAnswer[] = []
+        let extractedAnswers: Array<{ question_number: number; student_answer: string }> = []
         try {
           const jsonMatch = responseText.match(/\[[\s\S]*\]/)
           if (jsonMatch) {
-            gradedAnswers = JSON.parse(jsonMatch[0])
+            extractedAnswers = JSON.parse(jsonMatch[0])
           }
         } catch (parseError) {
-          console.error('Failed to parse AI grading response:', parseError)
+          console.error('Failed to parse AI response:', parseError)
           console.log('Raw response:', responseText)
-          send({ error: 'Failed to parse AI grading results' })
+          send({ error: 'Failed to parse AI results' })
           controller.close()
           return
         }
 
-        send({ progress: { current: 3, total: 4, message: 'Saving grades...' } })
+        console.log('AI extracted answers:', extractedAnswers)
 
-        // Build question grades from AI response
+        send({ progress: { current: 3, total: 4, message: 'Comparing to answer key...' } })
+
+        // Build question grades by comparing extracted answers to answer key
         const questionGrades: Array<{
           question_number: number
           student_answer: string
@@ -233,11 +230,37 @@ Rules:
         let totalPossible = 0
 
         for (const keyItem of keyItems as AnswerKeyItem[]) {
-          const aiGrade = gradedAnswers.find(g => g.question_number === keyItem.question_number)
-          const studentAnswer = aiGrade?.student_answer || '?'
-          const isCorrect = aiGrade?.is_correct || false
+          const extracted = extractedAnswers.find(a => a.question_number === keyItem.question_number)
+          const studentAnswer = extracted?.student_answer?.trim() || '?'
+
+          // Compare student answer to correct answer (case-insensitive)
+          const normalizedStudent = studentAnswer.toLowerCase().trim()
+          const normalizedCorrect = keyItem.correct_answer.toLowerCase().trim()
+
+          // Check if correct - also check accepted variants
+          let isCorrect = normalizedStudent === normalizedCorrect
+          if (!isCorrect && Array.isArray(keyItem.accepted_variants)) {
+            isCorrect = keyItem.accepted_variants.some(
+              v => v.toLowerCase().trim() === normalizedStudent
+            )
+          }
+
+          // Special handling for true/false
+          if (!isCorrect) {
+            const trueVariants = ['true', 't', 'yes', 'y']
+            const falseVariants = ['false', 'f', 'no', 'n']
+            if (trueVariants.includes(normalizedCorrect) && trueVariants.includes(normalizedStudent)) {
+              isCorrect = true
+            }
+            if (falseVariants.includes(normalizedCorrect) && falseVariants.includes(normalizedStudent)) {
+              isCorrect = true
+            }
+          }
+
           const pointsEarned = isCorrect ? (keyItem.points || 1) : 0
-          const needsReview = studentAnswer === '?' || !aiGrade
+          const needsReview = studentAnswer === '?'
+
+          console.log(`Q${keyItem.question_number}: Student="${studentAnswer}" Correct="${keyItem.correct_answer}" Match=${isCorrect}`)
 
           questionGrades.push({
             question_number: keyItem.question_number,
@@ -246,7 +269,7 @@ Rules:
             points_possible: keyItem.points || 1,
             points_earned: pointsEarned,
             is_correct: isCorrect,
-            confidence: aiGrade ? 0.9 : 0.5,
+            confidence: extracted ? 0.9 : 0.5,
             needs_review: needsReview,
           })
 
@@ -267,7 +290,7 @@ Rules:
               path,
               page_number: index + 1,
             })))),
-            ocr_raw: JSON.parse(JSON.stringify({ text: fullOcrText, ai_grading: gradedAnswers })),
+            ocr_raw: JSON.parse(JSON.stringify({ text: fullOcrText, ai_extracted: extractedAnswers })),
             status: 'completed',
           })
           .select()
