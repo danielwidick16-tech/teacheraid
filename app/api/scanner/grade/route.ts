@@ -150,37 +150,38 @@ export async function POST(req: NextRequest) {
         // Add the grading prompt
         content.push({
           type: 'text',
-          text: `You are a teacher's assistant grading a student's test/quiz paper.
+          text: `You are a teacher's assistant. Your job is to look at this student's completed test paper and extract WHAT THE STUDENT WROTE/MARKED as their answers.
 
-ANSWER KEY (correct answers):
+This is a STUDENT'S COMPLETED TEST - NOT the answer key. The student has marked their answers by:
+- Circling letters (A, B, C, D, E)
+- Writing letters next to question numbers
+- Filling in bubbles
+- Writing text in blanks
+- Using pen/pencil marks
+
+YOUR TASK: For each question number (1 through ${keyItems.length}), find what answer THE STUDENT marked on their paper.
+
+Here is the ANSWER KEY (the correct answers) - use this ONLY to determine if the student got each question right or wrong:
 ${answerKeySummary}
 
-Look at the student's paper image(s) carefully. Students mark their answers in various ways:
-- Circling a letter (A, B, C, D, E)
-- Writing a letter next to the question number
-- Filling in a bubble
-- Writing the answer in a blank
-- Crossing out wrong answers and marking the correct one
-- Using pen/pencil marks, checkmarks, or highlights
+IMPORTANT INSTRUCTIONS:
+1. First, look at the student's paper and identify what they marked for each question
+2. Then compare their answer to the answer key to determine if it's correct
+3. Do NOT assume the student got everything right - actually look at what they wrote
+4. If the student circled "B" but the correct answer is "A", that's WRONG (is_correct: false)
 
-For EACH question in the answer key, find the student's answer on their paper and determine if it's correct.
-
-IMPORTANT: Look for ANY marks the student made to indicate their answer - circled letters, written letters, filled bubbles, handwritten text, etc. Students often write their answers with pen or pencil directly on the test.
-
-Respond with a JSON array in this EXACT format:
+Respond with a JSON array:
 [
   {"question_number": 1, "student_answer": "B", "is_correct": false},
-  {"question_number": 2, "student_answer": "A", "is_correct": true},
-  {"question_number": 3, "student_answer": "True", "is_correct": true}
+  {"question_number": 2, "student_answer": "A", "is_correct": true}
 ]
 
 Rules:
-- Include ALL ${keyItems.length} questions
-- "student_answer" should be exactly what the student marked/wrote (or "?" if unclear/blank)
-- "is_correct" should be true if the student's answer matches the correct answer (case-insensitive)
-- For multiple choice, just use the letter (A, B, C, D, E)
-- For true/false, use "True" or "False"
-- Return ONLY the JSON array, no other text`,
+- "student_answer": What the STUDENT actually marked/wrote on their paper (not the correct answer!)
+- "is_correct": true ONLY if student_answer matches the correct answer from the key
+- Use "?" if you cannot determine what the student marked
+- Include all ${keyItems.length} questions
+- Return ONLY the JSON array`,
         })
 
         const response = await anthropic.messages.create({
