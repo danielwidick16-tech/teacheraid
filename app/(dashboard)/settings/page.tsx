@@ -168,6 +168,7 @@ export default function SettingsPage() {
               value={profile?.timezone || 'America/New_York'}
               onChange={(e) => setProfile((prev) => prev ? { ...prev, timezone: e.target.value } : null)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+              style={{ color: '#111827', backgroundColor: '#ffffff' }}
             >
               <option value="America/New_York">Eastern Time</option>
               <option value="America/Chicago">Central Time</option>
@@ -229,6 +230,7 @@ export default function SettingsPage() {
                 value={newRule.subject}
                 onChange={(e) => setNewRule((prev) => ({ ...prev, subject: e.target.value }))}
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
               >
                 <option value="">Subject</option>
                 {SUBJECTS.map((s) => (
@@ -239,6 +241,7 @@ export default function SettingsPage() {
                 value={newRule.day_of_week}
                 onChange={(e) => setNewRule((prev) => ({ ...prev, day_of_week: parseInt(e.target.value) }))}
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
               >
                 {DAYS.map((day, i) => (
                   <option key={i} value={i}>{day}</option>
@@ -249,12 +252,14 @@ export default function SettingsPage() {
                 value={newRule.start_time}
                 onChange={(e) => setNewRule((prev) => ({ ...prev, start_time: e.target.value }))}
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
               />
               <input
                 type="time"
                 value={newRule.end_time}
                 onChange={(e) => setNewRule((prev) => ({ ...prev, end_time: e.target.value }))}
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
               />
             </div>
             <Button

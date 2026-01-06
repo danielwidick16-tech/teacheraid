@@ -183,6 +183,7 @@ export default function SharePage() {
                   value={createdLink}
                   readOnly
                   className="flex-1 px-3 py-2 text-sm bg-white border border-green-300 rounded"
+                  style={{ color: '#111827', backgroundColor: '#ffffff' }}
                 />
                 <Button onClick={handleCopy} variant="outline">
                   {copied ? 'Copied!' : 'Copy'}
