@@ -148,35 +148,29 @@ export async function POST(req: NextRequest) {
         // Add the grading prompt - DON'T show answer key to avoid confusion
         content.push({
           type: 'text',
-          text: `You are analyzing a student's completed test/quiz paper. Your ONLY job is to identify what answer the student selected or wrote for each question.
+          text: `Analyze this student's completed test paper. The student has written or marked their answers in RED PEN.
 
-Look for the student's answers which may appear as:
-- A letter circled in RED PEN or pencil (A, B, C, D, E)
-- A letter written next to or near the question number
-- A filled-in bubble or checkbox
-- Handwritten text in a blank space
-- An "X" or checkmark next to an answer choice
-- Any marking that indicates the student's selection
+TASK: Find the student's answer for each question (1 through ${keyItems.length}).
 
-The test has ${keyItems.length} questions numbered 1 through ${keyItems.length}.
+HOW TO IDENTIFY STUDENT ANSWERS:
+The student writes their answer in RED next to or near each question number. Look for:
+- A RED letter written near the question number (like "1. B" or "2. A")
+- A RED circle around one of the printed answer choices
+- RED handwriting indicating the answer
 
-IMPORTANT:
-- Look for RED PEN marks - the student uses red pen to mark answers
-- Ignore the printed answer choices - only report what the student MARKED/SELECTED
-- The student's marking indicates their chosen answer
+The test paper has printed questions with answer choices (A, B, C, D, etc). The student's RED marks show which answer they chose.
 
-For each question, report ONLY what the student marked. Respond with JSON:
+CRITICAL: Only report answers that have RED markings. The student uses RED PEN to indicate their selections.
+
+Return a JSON array with what the student marked in RED for each question:
 [
   {"question_number": 1, "student_answer": "B"},
-  {"question_number": 2, "student_answer": "A"},
-  {"question_number": 3, "student_answer": "C"}
+  {"question_number": 2, "student_answer": "C"}
 ]
 
-Rules:
-- Report the letter or text the student marked/wrote
-- Use "?" if the student left it blank or you can't determine their answer
-- Include all ${keyItems.length} questions
-- Return ONLY the JSON array, no explanation`,
+If a question has no RED marking, use "?" for that answer.
+Include all ${keyItems.length} questions.
+Return ONLY the JSON array.`,
         })
 
         const response = await anthropic.messages.create({
